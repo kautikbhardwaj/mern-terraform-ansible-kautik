@@ -1,0 +1,179 @@
+---
+- name: Create the application directory
+  ansible.builtin.file:
+    path: "{{ app_dir }}"
+    state: directory
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    mode: "0755"
+  become: true
+
+- name: Clone the TravelMemory repository
+  ansible.builtin.git:
+    repo: "{{ app_repo }}"
+    dest: "{{ app_dir }}"
+    version: "{{ app_branch }}"
+    force: true
+  become: true
+  become_user: "{{ app_user }}"
+  notify:
+    - Rebuild frontend
+    - Restart backend
+
+# ---------------------------- Backend (Express) ----------------------------
+- name: Write the backend environment file
+  ansible.builtin.template:
+    src: backend.env.j2
+    dest: "{{ app_dir }}/backend/.env"
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    mode: "0600"
+  become: true
+  notify: Restart backend
+
+- name: Install backend dependencies
+  community.general.npm:
+    path: "{{ app_dir }}/backend"
+    state: present
+  become: true
+  become_user: "{{ app_user }}"
+  notify: Restart backend
+
+- name: Deploy the PM2 ecosystem file
+  ansible.builtin.template:
+    src: ecosystem.config.js.j2
+    dest: "{{ app_dir }}/ecosystem.config.js"
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    mode: "0644"
+  become: true
+  notify: Restart backend
+
+- name: Start the backend under PM2
+  ansible.builtin.command:
+    cmd: "pm2 start {{ app_dir }}/ecosystem.config.js"
+  args:
+    chdir: "{{ app_dir }}"
+  become: true
+  become_user: "{{ app_user }}"
+  register: pm2_start
+  changed_when: "'Starting' in pm2_start.stdout or 'online' in pm2_start.stdout"
+  failed_when:
+    - pm2_start.rc != 0
+    - "'already launched' not in pm2_start.stderr"
+
+- name: Configure PM2 to start on boot
+  ansible.builtin.command:
+    cmd: "pm2 startup systemd -u {{ app_user }} --hp /home/{{ app_user }}"
+  become: true
+  register: pm2_startup
+  changed_when: "'already' not in pm2_startup.stdout"
+
+- name: Persist the PM2 process list
+  ansible.builtin.command: pm2 save
+  become: true
+  become_user: "{{ app_user }}"
+  changed_when: true
+
+# ---------------------------- Frontend (React) -----------------------------
+- name: Point the React frontend at the Express backend
+  ansible.builtin.template:
+    src: url.js.j2
+    dest: "{{ app_dir }}/frontend/src/url.js"
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    mode: "0644"
+  become: true
+  notify: Rebuild frontend
+
+- name: Install frontend dependencies
+  community.general.npm:
+    path: "{{ app_dir }}/frontend"
+    state: present
+  become: true
+  become_user: "{{ app_user }}"
+  environment:
+    NODE_OPTIONS: "--openssl-legacy-provider"
+  notify: Rebuild frontend
+
+- name: Check whether a production build already exists
+  ansible.builtin.stat:
+    path: "{{ app_dir }}/frontend/build/index.html"
+  register: frontend_build
+
+- name: Build the React production bundle
+  ansible.builtin.command: npm run build
+  args:
+    chdir: "{{ app_dir }}/frontend"
+  become: true
+  become_user: "{{ app_user }}"
+  environment:
+    NODE_OPTIONS: "--openssl-legacy-provider"
+    CI: "false"
+  when: not frontend_build.stat.exists
+  changed_when: true
+
+# ------------------------------- Nginx -------------------------------------
+- name: Deploy the Nginx site definition
+  ansible.builtin.template:
+    src: nginx-travelmemory.conf.j2
+    dest: "/etc/nginx/sites-available/{{ app_name }}.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  notify: Reload nginx
+
+- name: Enable the site
+  ansible.builtin.file:
+    src: "/etc/nginx/sites-available/{{ app_name }}.conf"
+    dest: "/etc/nginx/sites-enabled/{{ app_name }}.conf"
+    state: link
+  become: true
+  notify: Reload nginx
+
+- name: Remove the default Nginx site
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  become: true
+  notify: Reload nginx
+
+- name: Allow Nginx to read the build directory
+  ansible.builtin.file:
+    path: "{{ app_dir }}"
+    mode: "0755"
+    state: directory
+  become: true
+
+- name: Validate the Nginx configuration
+  ansible.builtin.command: nginx -t
+  become: true
+  changed_when: false
+
+- name: Flush handlers before verification
+  ansible.builtin.meta: flush_handlers
+
+- name: Verify the backend API answers through Nginx
+  ansible.builtin.uri:
+    url: "http://127.0.0.1/api/hello"
+    return_content: true
+    status_code: [200, 404]
+  register: api_check
+  retries: 5
+  delay: 5
+  until: api_check.status in [200, 404]
+
+- name: Verify the React frontend is served
+  ansible.builtin.uri:
+    url: "http://127.0.0.1/"
+    return_content: true
+    status_code: 200
+  register: frontend_check
+
+- name: Deployment summary
+  ansible.builtin.debug:
+    msg:
+      - "Frontend: http://{{ web_public_ip }}/  (HTTP {{ frontend_check.status }})"
+      - "Backend via proxy: http://{{ web_public_ip }}/api  (HTTP {{ api_check.status }})"
+      - "Database: mongodb://{{ db_private_ip }}:{{ mongodb_port }}/{{ mongodb_database }}"

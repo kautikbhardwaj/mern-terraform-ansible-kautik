@@ -1,0 +1,7 @@
+---
+# Redeploy only the application (skips OS and MongoDB provisioning).
+- name: Redeploy the MERN application
+  hosts: web
+  gather_facts: true
+  roles:
+    - app

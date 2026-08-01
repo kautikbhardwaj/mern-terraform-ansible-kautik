@@ -1,0 +1,24 @@
+---
+app_name: travelmemory
+app_repo: "https://github.com/UnpredictablePrashant/TravelMemory.git"
+app_branch: main
+app_user: ubuntu
+app_dir: "/opt/travelmemory"
+
+nodejs_major_version: 20
+backend_port: 3000
+
+mongodb_version: "7.0"
+mongodb_port: 27017
+mongodb_database: travelmemory
+mongodb_app_user: tmapp
+
+# Override both of these with `ansible-vault` or -e at runtime.
+mongodb_admin_user: mongoadmin
+mongodb_admin_password: "ChangeMe_Admin#2026"
+mongodb_app_password: "ChangeMe_App#2026"
+
+mongodb_uri: "mongodb://{{ mongodb_app_user }}:{{ mongodb_app_password }}@{{ db_private_ip }}:{{ mongodb_port }}/{{ mongodb_database }}?authSource={{ mongodb_database }}"
+
+ssh_permit_root_login: "no"
+ssh_password_authentication: "no"

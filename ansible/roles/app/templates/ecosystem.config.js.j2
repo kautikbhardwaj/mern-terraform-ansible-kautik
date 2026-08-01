@@ -1,0 +1,19 @@
+// Managed by Ansible
+module.exports = {
+  apps: [
+    {
+      name: "{{ app_name }}-backend",
+      cwd: "{{ app_dir }}/backend",
+      script: "index.js",
+      instances: 1,
+      exec_mode: "fork",
+      autorestart: true,
+      max_memory_restart: "300M",
+      env: {
+        NODE_ENV: "production",
+        PORT: {{ backend_port }},
+        MONGO_URI: "{{ mongodb_uri }}"
+      }
+    }
+  ]
+};

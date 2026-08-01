@@ -1,0 +1,14 @@
+[web]
+<WEB_PUBLIC_IP> ansible_user=ubuntu
+
+[db]
+<DB_PRIVATE_IP> ansible_user=ubuntu
+
+[db:vars]
+ansible_ssh_common_args='-o ProxyJump=ubuntu@<WEB_PUBLIC_IP> -o StrictHostKeyChecking=no'
+
+[all:vars]
+ansible_ssh_private_key_file=~/.ssh/travelmemory
+web_public_ip=<WEB_PUBLIC_IP>
+web_private_ip=<WEB_PRIVATE_IP>
+db_private_ip=<DB_PRIVATE_IP>

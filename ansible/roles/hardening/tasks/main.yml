@@ -1,0 +1,102 @@
+---
+- name: Set the default UFW policies
+  community.general.ufw:
+    direction: "{{ item.direction }}"
+    policy: "{{ item.policy }}"
+  loop:
+    - { direction: incoming, policy: deny }
+    - { direction: outgoing, policy: allow }
+  become: true
+
+- name: Allow SSH through UFW
+  community.general.ufw:
+    rule: limit
+    port: "22"
+    proto: tcp
+  become: true
+
+- name: Allow HTTP and HTTPS on the web server
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop:
+    - "80"
+    - "443"
+  when: "'web' in group_names"
+  become: true
+
+- name: Allow MongoDB only from the web server private IP
+  community.general.ufw:
+    rule: allow
+    port: "{{ mongodb_port }}"
+    proto: tcp
+    src: "{{ web_private_ip }}"
+  when: "'db' in group_names"
+  become: true
+
+- name: Enable UFW
+  community.general.ufw:
+    state: enabled
+  become: true
+
+- name: Harden the SSH daemon
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    validate: "sshd -t -f %s"
+  loop:
+    - { regexp: '^#?PermitRootLogin', line: "PermitRootLogin {{ ssh_permit_root_login }}" }
+    - { regexp: '^#?PasswordAuthentication', line: "PasswordAuthentication {{ ssh_password_authentication }}" }
+    - { regexp: '^#?PermitEmptyPasswords', line: "PermitEmptyPasswords no" }
+    - { regexp: '^#?X11Forwarding', line: "X11Forwarding no" }
+    - { regexp: '^#?MaxAuthTries', line: "MaxAuthTries 3" }
+    - { regexp: '^#?ClientAliveInterval', line: "ClientAliveInterval 300" }
+    - { regexp: '^#?ClientAliveCountMax', line: "ClientAliveCountMax 2" }
+  become: true
+  notify: Restart sshd
+
+- name: Neutralise cloud-init overrides of PasswordAuthentication
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config.d/60-cloudimg-settings.conf
+    regexp: '^PasswordAuthentication'
+    line: "PasswordAuthentication no"
+    create: true
+    mode: "0644"
+  become: true
+  notify: Restart sshd
+
+- name: Configure fail2ban for SSH
+  ansible.builtin.copy:
+    dest: /etc/fail2ban/jail.local
+    mode: "0644"
+    content: |
+      # Managed by Ansible
+      [DEFAULT]
+      bantime  = 1h
+      findtime = 10m
+      maxretry = 5
+
+      [sshd]
+      enabled = true
+      port    = ssh
+      backend = systemd
+  become: true
+  notify: Restart fail2ban
+
+- name: Ensure fail2ban is running and enabled
+  ansible.builtin.systemd:
+    name: fail2ban
+    state: started
+    enabled: true
+  become: true
+
+- name: Enable unattended security upgrades
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    mode: "0644"
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+  become: true

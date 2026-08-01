@@ -1,0 +1,25 @@
+---
+- name: Baseline configuration for every host
+  hosts: all
+  gather_facts: true
+  roles:
+    - common
+
+- name: Provision the MongoDB database server (private subnet)
+  hosts: db
+  gather_facts: true
+  roles:
+    - mongodb
+
+- name: Provision the web server and deploy the MERN application
+  hosts: web
+  gather_facts: true
+  roles:
+    - webserver
+    - app
+
+- name: Apply security hardening to every host
+  hosts: all
+  gather_facts: true
+  roles:
+    - hardening

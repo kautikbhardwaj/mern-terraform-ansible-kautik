@@ -1,0 +1,142 @@
+---
+- name: Install pymongo (required by the MongoDB Ansible modules)
+  ansible.builtin.pip:
+    name: pymongo
+    state: present
+    executable: pip3
+  become: true
+
+- name: Ensure apt keyring directory exists
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: Add MongoDB GPG key
+  ansible.builtin.get_url:
+    url: "https://www.mongodb.org/static/pgp/server-{{ mongodb_version }}.asc"
+    dest: /etc/apt/keyrings/mongodb-server.asc
+    mode: "0644"
+  become: true
+
+- name: Add MongoDB apt repository
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [arch=amd64,arm64 signed-by=/etc/apt/keyrings/mongodb-server.asc]
+      https://repo.mongodb.org/apt/ubuntu
+      {{ ansible_distribution_release }}/mongodb-org/{{ mongodb_version }} multiverse
+    filename: mongodb-org
+    state: present
+    update_cache: true
+  become: true
+
+- name: Install MongoDB server
+  ansible.builtin.apt:
+    name: mongodb-org
+    state: present
+  become: true
+
+- name: Check whether database users have already been provisioned
+  ansible.builtin.stat:
+    path: /etc/mongodb-users-provisioned
+  register: mongo_users_marker
+  become: true
+
+# ---------- First run only: bootstrap users with authorisation off ----------
+- name: Bootstrap block
+  when: not mongo_users_marker.stat.exists
+  block:
+    - name: Deploy mongod.conf with authorisation temporarily disabled
+      ansible.builtin.template:
+        src: mongod.conf.j2
+        dest: /etc/mongod.conf
+        owner: root
+        group: root
+        mode: "0644"
+      vars:
+        mongodb_authorization: disabled
+      become: true
+
+    - name: Restart mongod for bootstrap
+      ansible.builtin.systemd:
+        name: mongod
+        state: restarted
+        enabled: true
+      become: true
+
+    - name: Wait for MongoDB to accept connections
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ mongodb_port }}"
+        delay: 3
+        timeout: 90
+
+    - name: Create the MongoDB administrative user
+      community.mongodb.mongodb_user:
+        login_host: 127.0.0.1
+        login_port: "{{ mongodb_port }}"
+        database: admin
+        name: "{{ mongodb_admin_user }}"
+        password: "{{ mongodb_admin_password }}"
+        roles:
+          - userAdminAnyDatabase
+          - dbAdminAnyDatabase
+          - readWriteAnyDatabase
+          - clusterMonitor
+        state: present
+
+    - name: Create the application database user
+      community.mongodb.mongodb_user:
+        login_host: 127.0.0.1
+        login_port: "{{ mongodb_port }}"
+        database: "{{ mongodb_database }}"
+        name: "{{ mongodb_app_user }}"
+        password: "{{ mongodb_app_password }}"
+        roles:
+          - readWrite
+        state: present
+
+    - name: Mark users as provisioned
+      ansible.builtin.copy:
+        content: "provisioned by ansible\n"
+        dest: /etc/mongodb-users-provisioned
+        mode: "0600"
+      become: true
+
+# ---------- Every run: enforce the hardened configuration ----------
+- name: Deploy hardened mongod.conf with authorisation enabled
+  ansible.builtin.template:
+    src: mongod.conf.j2
+    dest: /etc/mongod.conf
+    owner: root
+    group: root
+    mode: "0644"
+  vars:
+    mongodb_authorization: enabled
+  become: true
+  notify: Restart mongod
+
+- name: Ensure mongod is running and enabled at boot
+  ansible.builtin.systemd:
+    name: mongod
+    state: started
+    enabled: true
+  become: true
+
+- name: Flush handlers so authorisation is active before verification
+  ansible.builtin.meta: flush_handlers
+
+- name: Verify authenticated access to the application database
+  community.mongodb.mongodb_info:
+    login_host: 127.0.0.1
+    login_port: "{{ mongodb_port }}"
+    login_user: "{{ mongodb_admin_user }}"
+    login_password: "{{ mongodb_admin_password }}"
+    login_database: admin
+    filter: databases
+  register: mongo_info
+
+- name: Show databases present on the server
+  ansible.builtin.debug:
+    var: mongo_info.databases.keys() | list

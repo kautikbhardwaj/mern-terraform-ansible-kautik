@@ -1,0 +1,40 @@
+---
+- name: Wait for the host to become reachable
+  ansible.builtin.wait_for_connection:
+    timeout: 300
+
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+  become: true
+
+- name: Upgrade all packages
+  ansible.builtin.apt:
+    upgrade: safe
+  become: true
+
+- name: Install base packages
+  ansible.builtin.apt:
+    name:
+      - curl
+      - gnupg
+      - ca-certificates
+      - git
+      - ufw
+      - fail2ban
+      - unattended-upgrades
+      - python3-pip
+      - build-essential
+    state: present
+  become: true
+
+- name: Set timezone
+  community.general.timezone:
+    name: Asia/Kolkata
+  become: true
+
+- name: Set hostname from inventory role
+  ansible.builtin.hostname:
+    name: "{{ app_name }}-{{ 'web' if 'web' in group_names else 'db' }}"
+  become: true

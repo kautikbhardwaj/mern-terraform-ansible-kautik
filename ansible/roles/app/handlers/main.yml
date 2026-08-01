@@ -1,0 +1,23 @@
+---
+- name: Restart backend
+  ansible.builtin.command: "pm2 restart {{ app_name }}-backend --update-env"
+  become: true
+  become_user: "{{ app_user }}"
+  changed_when: true
+
+- name: Rebuild frontend
+  ansible.builtin.command: npm run build
+  args:
+    chdir: "{{ app_dir }}/frontend"
+  become: true
+  become_user: "{{ app_user }}"
+  environment:
+    NODE_OPTIONS: "--openssl-legacy-provider"
+    CI: "false"
+  changed_when: true
+
+- name: Reload nginx
+  ansible.builtin.systemd:
+    name: nginx
+    state: reloaded
+  become: true
