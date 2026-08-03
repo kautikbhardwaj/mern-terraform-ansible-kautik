@@ -4,9 +4,9 @@
 **Name:** Kautik Bhardwaj
 **Application deployed:** https://github.com/UnpredictablePrashant/TravelMemory
 
-**Repository link:** https://github.com/kautikbhardwaj/<REPO-NAME>
+**Repository link:** https://github.com/kautikbhardwaj/mern-terraform-ansible-kautik
 
-**Live application URL:** http://<WEB_PUBLIC_IP>
+**Live application URL:** http://13.206.15.238
 
 ## Contents
 - `terraform/` — VPC, public and private subnets, Internet Gateway, NAT Gateway, route
