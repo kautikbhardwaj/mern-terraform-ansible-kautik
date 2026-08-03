@@ -18,7 +18,7 @@ mongodb_admin_user: mongoadmin
 mongodb_admin_password: "ChangeMe_Admin#2026"
 mongodb_app_password: "ChangeMe_App#2026"
 
-mongodb_uri: "mongodb://{{ mongodb_app_user }}:{{ mongodb_app_password }}@{{ db_private_ip }}:{{ mongodb_port }}/{{ mongodb_database }}?authSource={{ mongodb_database }}"
+mongodb_uri: "mongodb://{{ mongodb_app_user | urlencode }}:{{ mongodb_app_password | urlencode }}@{{ db_private_ip }}:{{ mongodb_port }}/{{ mongodb_database }}?authSource={{ mongodb_database }}"
 
 ssh_permit_root_login: "no"
 ssh_password_authentication: "no"
